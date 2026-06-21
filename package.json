@@ -7,7 +7,7 @@
     "dev": "vite dev",
     "full-dev": "wrangler pages dev --proxy 8080 -- vite dev",
     "build": "vite build",
-    "deploy":"vite build && npx wrangler pages deploy dist --project-name nourishai && npx wrangler d1 execute --remote --file=schema.sql",
+    "deploy:d1":"wrangler d1 execute DB --remote --file=schema.sql",
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "lint": "eslint .",

@@ -181,8 +181,8 @@ export function ChatSheet({ open, onClose, date }: Props) {
                               <summary className="cursor-pointer font-bold text-muted-foreground outline-none">
                                 Thinking Process
                               </summary>
-                              <div className="mt-2 whitespace-pre-wrap text-muted-foreground">
-                                {part.content}
+                              <div className="mt-2 text-muted-foreground markdown-chat">
+                                <Markdown>{part.content}</Markdown>
                               </div>
                             </details>
                           );

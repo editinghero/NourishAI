@@ -1,6 +1,7 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { DayPicker } from "react-day-picker";
+import "react-day-picker/style.css";
 import { categorizeWithGemini } from "@/lib/gemini-client";
 import { useDays } from "@/hooks/useDays";
 import { LogPanel } from "@/components/LogPanel";
@@ -74,6 +75,11 @@ function Index() {
     new Date(),
   );
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [showPrevious, setShowPrevious] = useState(false);
+
+  useEffect(() => {
+    setShowPrevious(false);
+  }, [filter, viewMode]);
 
   const [settings, setSettings] = useState<Settings>(() => {
     const parsed = user.settingsJson ? JSON.parse(user.settingsJson) : {};
@@ -96,19 +102,7 @@ function Index() {
 
   const filtered = useMemo(() => {
     let list = sorted;
-    if (viewMode === "timeline") {
-      const seen = new Set<string>();
-      const recent: DayEntry[] = [];
-      for (const d of sorted) {
-        const k = dayKey(d);
-        if (!seen.has(k)) {
-          seen.add(k);
-        }
-        if (seen.size > 7) break;
-        recent.push(d);
-      }
-      list = recent;
-    } else if (viewMode === "calendar") {
+    if (viewMode === "calendar") {
       if (!calendarDate) {
         list = [];
       } else {
@@ -120,6 +114,11 @@ function Index() {
     if (filter === "all") return list;
     return list.filter((d) => d.category === filter);
   }, [sorted, filter, viewMode, calendarDate]);
+
+  const daysMatchingFilter = useMemo(() => {
+    if (filter === "all") return sorted;
+    return sorted.filter((d) => d.category === filter);
+  }, [sorted, filter]);
 
   const weekAvg = useMemo(() => {
     if (sorted.length === 0) return EMPTY;
@@ -444,7 +443,10 @@ function Index() {
             {categories.map((c) => (
               <button
                 key={c.key}
-                onClick={() => setFilter(c.key)}
+                onClick={() => {
+                  setFilter(c.key);
+                  setViewMode("timeline"); // Switch to timeline to show every day in the selection!
+                }}
                 className={`whitespace-nowrap rounded-full px-4 py-2 text-xs font-bold transition ${
                   filter === c.key
                     ? "bg-muted-foreground text-background"
@@ -466,16 +468,12 @@ function Index() {
             onSelect={setCalendarDate}
             modifiers={{
               hasLog: (date) =>
-                sorted.some(
+                daysMatchingFilter.some(
                   (d) => dayKey(d) === date.toISOString().slice(0, 10),
                 ),
             }}
-            modifiersStyles={{
-              hasLog: {
-                fontWeight: "bold",
-                textDecoration: "underline",
-                color: "var(--primary)",
-              },
+            modifiersClassNames={{
+              hasLog: "rdp-day-has-log",
             }}
           />
         </div>
@@ -485,7 +483,7 @@ function Index() {
         <EmptyState />
       ) : (
         <div className="flex flex-col gap-4">
-          {filtered.map((d, i) => (
+          {(viewMode === "timeline" ? filtered.slice(0, 7) : filtered).map((d, i) => (
             <DayCard
               key={d.id}
               entry={d}
@@ -494,6 +492,44 @@ function Index() {
               onEdit={() => setEditing(d)}
             />
           ))}
+
+          {viewMode === "timeline" && filtered.length > 7 && (
+            <>
+              {!showPrevious ? (
+                <div className="mt-4 flex justify-center">
+                  <button
+                    onClick={() => setShowPrevious(true)}
+                    className="flex items-center gap-2 rounded-full border border-border bg-card px-6 py-3 text-sm font-bold text-muted-foreground transition hover:bg-muted hover:text-foreground shadow-sm cursor-pointer"
+                  >
+                    Show Previous Days ({filtered.length - 7})
+                  </button>
+                </div>
+              ) : (
+                <div className="mt-8 border-t border-border pt-6 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-lg font-bold text-muted-foreground">Previous Days</h3>
+                    <button
+                      onClick={() => setShowPrevious(false)}
+                      className="text-xs text-muted-foreground hover:text-foreground font-semibold cursor-pointer"
+                    >
+                      Hide
+                    </button>
+                  </div>
+                  <div className="flex flex-col gap-4">
+                    {filtered.slice(7).map((d, i) => (
+                      <DayCard
+                        key={d.id}
+                        entry={d}
+                        index={i + 7}
+                        onDelete={() => remove(d.id)}
+                        onEdit={() => setEditing(d)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
 
