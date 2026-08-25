@@ -98,8 +98,8 @@ app.get("/user", async (c) => {
   return c.json({
     id: user.id,
     username: user.username,
-    geminiKey: decryptedKey,
-    geminiModel: user.model_id,
+    apiKey: decryptedKey,
+    modelId: user.model_id,
     settingsJson: user.settings_json,
   });
 });
@@ -108,15 +108,15 @@ app.post("/user/settings", async (c) => {
   const sid = getCookie(c, "session_id");
   if (!sid) return c.json({ error: "Unauthorized" }, 401);
 
-  const { geminiKey, modelId, settingsJson } = await c.req.json();
+  const { apiKey, modelId, settingsJson } = await c.req.json();
   const db = c.env.DB;
   const updates: string[] = [];
   const values: any[] = [];
 
-  if (geminiKey !== undefined) {
+  if (apiKey !== undefined) {
     updates.push("encrypted_api_key = ?");
     values.push(
-      geminiKey ? await encryptKey(geminiKey, c.env.ENCRYPTION_SECRET) : null,
+      apiKey ? await encryptKey(apiKey, c.env.ENCRYPTION_SECRET) : null,
     );
   }
   if (modelId !== undefined) {
@@ -317,17 +317,21 @@ app.post("/chats/:date", async (c) => {
   if (!userQuery.results || userQuery.results.length === 0)
     return c.json({ error: "User not found" }, 404);
   const user = userQuery.results[0] as any;
-  if (!user.encrypted_api_key)
-    return c.json({ error: "No Gemini API key set" }, 400);
+  if (!user.encrypted_api_key) return c.json({ error: "No API key set" }, 400);
   const apiKey = await decryptKey(
     user.encrypted_api_key,
     c.env.ENCRYPTION_SECRET,
   );
-  const modelId = user.model_id || "gemini-2.5-flash";
-  let settings = {};
+  const modelId = user.model_id || "";
+  let settings = {} as any;
   try {
     settings = JSON.parse(user.settings_json || "{}");
   } catch (e) {}
+
+  const apiUrl = settings.apiUrl;
+  if (!apiUrl || !modelId) {
+    return c.json({ error: "API URL or Model ID not set" }, 400);
+  }
 
   // 2. Fetch past 3 days of nutrition info
   const daysQuery = await db
@@ -337,18 +341,18 @@ app.post("/chats/:date", async (c) => {
     .bind(sid)
     .all();
   let contextText =
-    "You are NourishAI's nutrition assistant. You help the user manage their diet, settings, and understand their logs.\\n";
+    "You are NourishAI's nutrition assistant. You help the user manage their diet, settings, and understand their logs.\n";
   contextText +=
     "Today's date is " +
     new Date().toISOString().slice(0, 10) +
     ". Chat is for date: " +
     date +
-    ".\\n";
+    ".\n";
   contextText +=
-    "Here are their recent nutrition logs (to understand what they eat):\\n";
+    "Here are their recent nutrition logs (to understand what they eat):\n";
   if (daysQuery.results) {
     for (const row of daysQuery.results) {
-      contextText += `Date: ${(row as any).date}, Log: ${(row as any).entry_json}\\n`;
+      contextText += `Date: ${(row as any).date}, Log: ${(row as any).entry_json}\n`;
     }
   }
 
@@ -368,84 +372,81 @@ app.post("/chats/:date", async (c) => {
     )
     .bind(sid, date)
     .all();
-  const contents: any[] = [];
+  const messages: any[] = [{ role: "system", content: contextText }];
   if (historyQuery.results) {
     for (const row of historyQuery.results) {
-      contents.push({
-        role: (row as any).role === "assistant" ? "model" : "user",
-        parts: [{ text: (row as any).content }],
+      messages.push({
+        role: (row as any).role,
+        content: (row as any).content,
       });
     }
   }
 
-  // 5. Call Gemini API
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${apiKey}`;
+  // 5. Call AI API
   const body = {
-    systemInstruction: { role: "system", parts: [{ text: contextText }] },
-    contents,
+    model: modelId,
+    messages,
     tools: [
       {
-        functionDeclarations: [
-          {
-            name: "updateSettings",
-            description:
-              "Update the user's daily nutrition targets and custom AI prompt. Returns success status.",
-            parameters: {
-              type: "OBJECT",
-              properties: {
-                targets: {
-                  type: "OBJECT",
-                  properties: {
-                    calories: { type: "NUMBER" },
-                    protein: { type: "NUMBER" },
-                    carbs: { type: "NUMBER" },
-                    fat: { type: "NUMBER" },
-                    sugar: { type: "NUMBER" },
-                  },
+        type: "function",
+        function: {
+          name: "updateSettings",
+          description:
+            "Update the user's daily nutrition targets and custom AI prompt. Returns success status.",
+          parameters: {
+            type: "object",
+            properties: {
+              targets: {
+                type: "object",
+                properties: {
+                  calories: { type: "number" },
+                  protein: { type: "number" },
+                  carbs: { type: "number" },
+                  fat: { type: "number" },
+                  sugar: { type: "number" },
                 },
-                customLogPrompt: { type: "STRING" },
               },
+              customLogPrompt: { type: "string" },
             },
           },
-        ],
+        },
       },
     ],
-    generationConfig: { temperature: 0.5 },
+    temperature: 0.5,
   };
 
   // Main Loop to handle tool calls
-  let currentBody = body;
+  const currentBody = body;
   let finalResponseText = "";
 
   for (let step = 0; step < 3; step++) {
-    const res = await fetch(url, {
+    const res = await fetch(apiUrl, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
       body: JSON.stringify(currentBody),
     });
     if (!res.ok) {
       const err = await res.text();
-      return c.json({ error: "Gemini API Error: " + err }, 500);
+      return c.json({ error: "AI API Error: " + err }, 500);
     }
     const json = (await res.json()) as any;
-    const candidate = json.candidates?.[0];
-    if (!candidate) break;
+    const choice = json.choices?.[0];
+    if (!choice) break;
 
+    const msg = choice.message;
     // Save model's response to history so we can append next turns
-    currentBody.contents.push(candidate.content);
+    currentBody.messages.push(msg);
 
-    const parts = candidate.content.parts || [];
-    let hasFunctionCall = false;
-    let funcResponses: any[] = [];
+    if (msg.content) finalResponseText += msg.content;
 
-    for (const part of parts) {
-      if (part.text) finalResponseText += part.text;
-      if (part.functionCall) {
-        hasFunctionCall = true;
-        const name = part.functionCall.name;
-        const args = part.functionCall.args;
-        if (name === "updateSettings") {
+    if (msg.tool_calls && msg.tool_calls.length > 0) {
+      for (const toolCall of msg.tool_calls) {
+        if (toolCall.function.name === "updateSettings") {
           try {
+            const args = JSON.parse(toolCall.function.arguments);
             const newSettings = { ...settings };
             if (args.targets)
               newSettings.targets = { ...newSettings.targets, ...args.targets };
@@ -455,27 +456,24 @@ app.post("/chats/:date", async (c) => {
               .prepare("UPDATE users SET settings_json = ? WHERE id = ?")
               .bind(JSON.stringify(newSettings), sid)
               .run();
-            funcResponses.push({
-              functionResponse: {
-                name,
-                response: { success: true, newSettings },
-              },
+
+            currentBody.messages.push({
+              tool_call_id: toolCall.id,
+              role: "tool",
+              name: toolCall.function.name,
+              content: JSON.stringify({ success: true, newSettings }),
             });
             settings = newSettings; // Update local scope
           } catch (e: any) {
-            funcResponses.push({
-              functionResponse: {
-                name,
-                response: { success: false, error: e.message },
-              },
+            currentBody.messages.push({
+              tool_call_id: toolCall.id,
+              role: "tool",
+              name: toolCall.function.name,
+              content: JSON.stringify({ success: false, error: e.message }),
             });
           }
         }
       }
-    }
-
-    if (hasFunctionCall && funcResponses.length > 0) {
-      currentBody.contents.push({ role: "user", parts: funcResponses });
     } else {
       break; // No more function calls, we are done
     }

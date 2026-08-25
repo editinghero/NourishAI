@@ -2,7 +2,7 @@ import { createFileRoute, redirect } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { DayPicker } from "react-day-picker";
 import "react-day-picker/style.css";
-import { categorizeWithGemini } from "@/lib/gemini-client";
+import { categorizeWithAI } from "@/lib/ai-client";
 import { useDays } from "@/hooks/useDays";
 import { LogPanel } from "@/components/LogPanel";
 import { ImportPanel } from "@/components/ImportPanel";
@@ -84,8 +84,9 @@ function Index() {
   const [settings, setSettings] = useState<Settings>(() => {
     const parsed = user.settingsJson ? JSON.parse(user.settingsJson) : {};
     return {
-      geminiKey: user.geminiKey || "",
-      geminiModel: user.geminiModel || "gemini-2.5-flash",
+      apiKey: user.apiKey || "",
+      modelId: user.modelId || "",
+      apiUrl: parsed.apiUrl || "",
       targets: parsed.targets || DEFAULT_TARGETS,
       customLogPrompt: parsed.customLogPrompt || "",
     };
@@ -207,11 +208,16 @@ function Index() {
     systemPrompt?: string,
     images?: Array<{ dataUrl: string }>,
   ) {
-    if (settings.geminiKey.trim()) {
-      return await categorizeWithGemini({
+    if (
+      settings.apiKey.trim() &&
+      settings.apiUrl.trim() &&
+      settings.modelId.trim()
+    ) {
+      return await categorizeWithAI({
         text,
-        apiKey: settings.geminiKey.trim(),
-        model: settings.geminiModel,
+        apiKey: settings.apiKey.trim(),
+        apiUrl: settings.apiUrl.trim(),
+        model: settings.modelId,
         targets: settings.targets,
         systemPrompt,
         images,
@@ -483,15 +489,17 @@ function Index() {
         <EmptyState />
       ) : (
         <div className="flex flex-col gap-4">
-          {(viewMode === "timeline" ? filtered.slice(0, 7) : filtered).map((d, i) => (
-            <DayCard
-              key={d.id}
-              entry={d}
-              index={i}
-              onDelete={() => remove(d.id)}
-              onEdit={() => setEditing(d)}
-            />
-          ))}
+          {(viewMode === "timeline" ? filtered.slice(0, 7) : filtered).map(
+            (d, i) => (
+              <DayCard
+                key={d.id}
+                entry={d}
+                index={i}
+                onDelete={() => remove(d.id)}
+                onEdit={() => setEditing(d)}
+              />
+            ),
+          )}
 
           {viewMode === "timeline" && filtered.length > 7 && (
             <>
@@ -507,7 +515,9 @@ function Index() {
               ) : (
                 <div className="mt-8 border-t border-border pt-6 space-y-4">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-lg font-bold text-muted-foreground">Previous Days</h3>
+                    <h3 className="text-lg font-bold text-muted-foreground">
+                      Previous Days
+                    </h3>
                     <button
                       onClick={() => setShowPrevious(false)}
                       className="text-xs text-muted-foreground hover:text-foreground font-semibold cursor-pointer"

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import gsap from "gsap";
 import type { Settings } from "@/lib/settings";
 import { DEFAULT_TARGETS } from "@/lib/settings";
-import { analyzePromptWithGemini } from "@/lib/gemini-client";
+import { analyzePromptWithAI } from "@/lib/ai-client";
 import type { DayEntry } from "@/lib/types";
 
 type Props = {
@@ -87,7 +87,7 @@ export function SettingsSheet({
             )}
             <h2 className="text-2xl font-bold">
               {view === "menu" && "Settings"}
-              {view === "api" && "Gemini API key"}
+              {view === "api" && "Custom API"}
               {view === "targets" && "Daily targets"}
               {view === "prompt" && "Custom log prompt"}
               {view === "data" && "Backup & restore"}
@@ -115,7 +115,7 @@ export function SettingsSheet({
           {view === "menu" && (
             <Menu
               setView={setView}
-              hasKey={!!draft.geminiKey.trim()}
+              hasKey={!!draft.apiKey.trim()}
               hasCustomPrompt={!!draft.customLogPrompt.trim()}
             />
           )}
@@ -155,8 +155,8 @@ function Menu({
   }> = [
     {
       key: "api",
-      label: "Gemini API key",
-      sub: "Use your own Google AI Studio key",
+      label: "OpenAI-Compatible API",
+      sub: "Use a custom API endpoint, model, and key",
       status: hasKey ? "Set" : "Required",
       icon: (
         <svg
@@ -284,46 +284,48 @@ function ApiView({
 }) {
   return (
     <div className="space-y-3">
-      <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-        Google Gemini API key
-      </label>
-      <input
-        type="password"
-        value={draft.geminiKey}
-        onChange={(e) => setDraft({ ...draft, geminiKey: e.target.value })}
-        placeholder="Paste your AI Studio key — stays in this browser"
-        className="w-full rounded-2xl border border-border bg-input px-4 py-3 font-mono text-xs focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-      />
-      <p className="text-[11px] text-muted-foreground">
-        With a key, requests go directly from your browser to Gemini. This is
-        required.
+      <div className="space-y-1">
+        <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+          API URL
+        </label>
+        <input
+          type="text"
+          value={draft.apiUrl}
+          onChange={(e) => setDraft({ ...draft, apiUrl: e.target.value })}
+          placeholder="e.g. https://api.openai.com/v1/chat/completions"
+          className="w-full rounded-2xl border border-border bg-input px-4 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+        />
+      </div>
+
+      <div className="space-y-1 mt-2">
+        <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+          Model ID
+        </label>
+        <input
+          type="text"
+          value={draft.modelId}
+          onChange={(e) => setDraft({ ...draft, modelId: e.target.value })}
+          placeholder="e.g. gpt-4o-mini"
+          className="w-full rounded-2xl border border-border bg-input px-4 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+        />
+      </div>
+
+      <div className="space-y-1 mt-2">
+        <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+          API key
+        </label>
+        <input
+          type="password"
+          value={draft.apiKey}
+          onChange={(e) => setDraft({ ...draft, apiKey: e.target.value })}
+          placeholder="Paste your API key"
+          className="w-full rounded-2xl border border-border bg-input px-4 py-3 font-mono text-xs focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+        />
+      </div>
+      <p className="text-[11px] text-muted-foreground mt-2">
+        This key is required to connect to your custom AI API.
       </p>
-      {draft.geminiKey && (
-        <div className="space-y-1 mt-2">
-          <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-            Gemini Model ID
-          </label>
-          <input
-            type="text"
-            list="gemini-models"
-            value={draft.geminiModel}
-            onChange={(e) =>
-              setDraft({ ...draft, geminiModel: e.target.value })
-            }
-            placeholder="e.g. gemini-2.5-flash"
-            className="w-full rounded-2xl border border-border bg-input px-4 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
-          />
-          <datalist id="gemini-models">
-            <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-            <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash Lite</option>
-            <option value="gemini-3-flash-preview">Gemini 3 Flash</option>
-            <option value="gemini-3.1-flash-lite">Gemini 3.1 Flash Lite</option>
-            <option value="gemini-3.5-flash">Gemini 3.5 Flash</option>
-            <option value="gemma-4-26b-a4b">Gemma 4 26B (MoE)</option>
-            <option value="gemma-4-31b-it">Gemma 4 31B (Dense)</option>
-          </datalist>
-        </div>
-      )}
+
       <SaveBar onSave={() => onSave(draft)} />
     </div>
   );
@@ -385,16 +387,19 @@ function PromptView({
 
   async function handleAnalyze() {
     if (!draft.customLogPrompt.trim() || analyzing) return;
-    if (!draft.geminiKey) {
-      alert("Please set your Gemini API key first to use this feature.");
+    if (!draft.apiKey || !draft.apiUrl || !draft.modelId) {
+      alert(
+        "Please set your API URL, Model ID, and API key first to use this feature.",
+      );
       return;
     }
     setAnalyzing(true);
     try {
-      const res = await analyzePromptWithGemini({
+      const res = await analyzePromptWithAI({
         text: draft.customLogPrompt,
-        apiKey: draft.geminiKey,
-        model: draft.geminiModel || "gemini-2.5-flash",
+        apiKey: draft.apiKey,
+        apiUrl: draft.apiUrl,
+        model: draft.modelId,
       });
 
       if (res) {

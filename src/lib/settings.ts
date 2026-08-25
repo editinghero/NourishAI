@@ -3,8 +3,9 @@ import type { Macros } from "./types";
 const KEY = "nutri.settings.v1";
 
 export type Settings = {
-  geminiKey: string;
-  geminiModel: string;
+  apiKey: string;
+  modelId: string;
+  apiUrl: string;
   targets: Macros;
   customLogPrompt: string;
 };
@@ -18,8 +19,9 @@ export const DEFAULT_TARGETS: Macros = {
 };
 
 export const DEFAULT_SETTINGS: Settings = {
-  geminiKey: "",
-  geminiModel: "gemini-2.0-flash",
+  apiKey: "",
+  modelId: "",
+  apiUrl: "",
   targets: DEFAULT_TARGETS,
   customLogPrompt: "",
 };
