@@ -9,7 +9,12 @@ import { ImportPanel } from "@/components/ImportPanel";
 import { DayCard } from "@/components/DayCard";
 import { Hero } from "@/components/Hero";
 import { SettingsSheet } from "@/components/SettingsSheet";
-import { loadSettings, DEFAULT_TARGETS, type Settings } from "@/lib/settings";
+import {
+  loadSettings,
+  saveSettings,
+  DEFAULT_TARGETS,
+  type Settings,
+} from "@/lib/settings";
 import { LOG_SYSTEM_PROMPT, EDIT_DAY_PROMPT } from "@/lib/prompt";
 import { splitMultiDay } from "@/lib/chunker";
 import { EditDaySheet } from "@/components/EditDaySheet";
@@ -83,12 +88,14 @@ function Index() {
 
   const [settings, setSettings] = useState<Settings>(() => {
     const parsed = user.settingsJson ? JSON.parse(user.settingsJson) : {};
+    const localSettings = loadSettings();
     return {
       apiKey: user.apiKey || "",
-      modelId: user.modelId || "",
-      apiUrl: parsed.apiUrl || "",
-      targets: parsed.targets || DEFAULT_TARGETS,
-      customLogPrompt: parsed.customLogPrompt || "",
+      modelId: localSettings.modelId || user.modelId || "",
+      apiUrl: localSettings.apiUrl || parsed.apiUrl || "",
+      targets: parsed.targets || localSettings.targets || DEFAULT_TARGETS,
+      customLogPrompt:
+        parsed.customLogPrompt || localSettings.customLogPrompt || "",
     };
   });
 
@@ -286,13 +293,15 @@ function Index() {
 
   function handleSaveSettings(s: Settings) {
     setSettings(s);
+    saveSettings(s);
     fetch("/api/user/settings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        geminiKey: s.geminiKey,
-        modelId: s.geminiModel,
+        apiKey: s.apiKey,
+        modelId: s.modelId,
         settingsJson: JSON.stringify({
+          apiUrl: s.apiUrl,
           targets: s.targets,
           customLogPrompt: s.customLogPrompt,
         }),
