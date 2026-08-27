@@ -35,6 +35,7 @@ export function loadSettings(): Settings {
     return {
       ...DEFAULT_SETTINGS,
       ...parsed,
+      apiKey: "", // Never load apiKey from localStorage
       targets: { ...DEFAULT_TARGETS, ...(parsed.targets ?? {}) },
     };
   } catch {
@@ -44,5 +45,6 @@ export function loadSettings(): Settings {
 
 export function saveSettings(s: Settings) {
   if (typeof window === "undefined") return;
-  localStorage.setItem(KEY, JSON.stringify(s));
+  const { apiKey, ...safeSettings } = s;
+  localStorage.setItem(KEY, JSON.stringify(safeSettings));
 }
